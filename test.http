@@ -1,0 +1,16 @@
+### GET Task Request
+GET http://localhost:8080/tasks
+Content-Type: application/json
+
+{
+  "status": ""
+}
+
+### Create Task Request
+POST http://localhost:8080/tasks
+Content-Type: application/json
+
+{
+"title": "Examje Task 2",
+"status": "Doinkg"
+}

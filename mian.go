@@ -4,17 +4,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"log"
-	"net/http"
-	"testing"
-
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
+	httpSwagger "github.com/swaggo/http-swagger"
+	"log"
+	"net/http"
 )
 
 // Task представляет собой модель задачи
 type Task struct {
-	ID     int    `json:"id"`
 	Title  string `json:"title"`
 	Status string `json:"status"`
 }
@@ -24,7 +22,8 @@ var db *sql.DB
 func init() {
 	var err error
 	// параметры подключения и друигие конфиг параметры использую напрямую , можно брать из конфиг файлов или переменых окружения по желанию
-	db, err = sql.Open("postgres", "user=user dbname=taskdb sslmode=disable password=password")
+	log.Println("Начинаем подключение к базе")
+	db, err = sql.Open("postgres", "user=user dbname=taskdb sslmode=disable password=password host=postgres-db-task port=5432")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -38,7 +37,6 @@ func init() {
 	// Создание таблицы, если она не существует. Миграции и инит базы отдельно не делаю.
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS tasks (
-			id SERIAL PRIMARY KEY,
 			title VARCHAR(255),
 			status VARCHAR(50)
 		);
@@ -59,26 +57,53 @@ func main() {
 	// Добавление эндпоинта для Swagger документации
 	router.HandleFunc("/swagger.json", swaggerDoc).Methods("GET")
 
+	// Добавление эндпоинта для Swagger UI
+	router.PathPrefix("/swagger/").Handler(httpSwagger.Handler(
+		httpSwagger.URL("/swagger.json"),
+		httpSwagger.DeepLinking(true),
+		httpSwagger.DocExpansion("none"),
+		httpSwagger.DomID("#swagger-ui"),
+	))
+
 	log.Println("Сервис стартует на порту 8080")
 	log.Fatal(http.ListenAndServe(":8080", router))
 }
 
 // getTasks возвращает список задач
+// getTasks godoc
+// @Summary Get Task
+// @Tags Task
+// @Accept json
+// @Produce json
+// @Success 200 {array} Task
+// @Failure 404 {object} common.Error
+// @Failure 422 {object} common.Error
+// @Failure 500 {object} common.Error
+// @Router /tasks [get]
 func getTasks(w http.ResponseWriter, r *http.Request) {
-	status := r.FormValue("status")
+	var requestData map[string]string
+
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	status := requestData["status"]
 
 	var tasks []Task
-
 	var query string
+	var args []interface{}
+
 	if status != "" {
 		query = "SELECT * FROM tasks WHERE status = $1"
 		log.Println("Запрос задач по статусу =", status)
+		args = append(args, status)
 	} else {
 		query = "SELECT * FROM tasks"
 		log.Println("Запрос задач")
 	}
 
-	rows, err := db.Query(query, status)
+	rows, err := db.Query(query, args...)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -86,7 +111,7 @@ func getTasks(w http.ResponseWriter, r *http.Request) {
 
 	for rows.Next() {
 		var task Task
-		err := rows.Scan(&task.ID, &task.Title, &task.Status)
+		err := rows.Scan(&task.Title, &task.Status)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -98,6 +123,17 @@ func getTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 // createTask создает новую задачу
+// delete godoc
+// @Summary createTask
+// @Tags Task
+// @Param Task
+// @Accept json
+// @Produce json
+// @Success 201
+// @Failure 404 {object} common.Error
+// @Failure 400 {object} common.Error
+// @Failure 500 {object} common.Error
+// @Router /tasks [create]
 func createTask(w http.ResponseWriter, r *http.Request) {
 	var task Task
 	err := json.NewDecoder(r.Body).Decode(&task)
@@ -175,9 +211,6 @@ func swaggerDoc(w http.ResponseWriter, r *http.Request) {
 			"Task": {
 				"type": "object",
 				"properties": {
-					"id": {
-						"type": "integer"
-					},
 					"title": {
 						"type": "string"
 					},
@@ -191,14 +224,4 @@ func swaggerDoc(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprint(w, swaggerJSON)
-}
-
-// Тестирование API
-func TestAPI(t *testing.T) {
-	// Ваш код для тестирования API здесь
-}
-
-// Тестирование хранилища данных
-func TestDataStore(t *testing.T) {
-	// Ваш код для тестирования хранилища данных здесь
 }
